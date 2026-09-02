@@ -1,23 +1,39 @@
-import os, glob, torch, math
+import sys
+import torch
+import math
 import numpy as np
 import cv2
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from benchmark.config import DATASET_B_UNDISTORTED_DIR, OUTPUT_DIR, VISUALIZATION_DIR, ensure_output_directories
+from benchmark.io import image_paths, read_image
 from perspective2d import PerspectiveFields
 from perspective2d.utils import draw_from_r_p_f_cx_cy
 
 # Create a folder to save the cool visual outputs
-vis_folder = 'visualizations/perspective_fields'
-os.makedirs(vis_folder, exist_ok=True)
+VIS_DIR = VISUALIZATION_DIR / "perspective_fields"
+ensure_output_directories()
+VIS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Load the AI model
 print("Loading Perspective Fields model...")
 model = PerspectiveFields('Paramnet-360Cities-edina-uncentered').eval().cpu()
 
 predictions = {}
+input_paths = image_paths(DATASET_B_UNDISTORTED_DIR)
 
 # Process each image
-for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
-    filename = os.path.basename(img_path)
-    img_bgr = cv2.imread(img_path)
+for img_path in input_paths:
+    filename = img_path.name
+    try:
+        img_bgr = read_image(img_path)
+    except ValueError as error:
+        print(f"Skipping {error}")
+        continue
+        continue
     h, w = img_bgr.shape[:2]
     
     # 1. AI Inference
@@ -56,11 +72,15 @@ for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
     blend_bgr = cv2.cvtColor(blend_rgb, cv2.COLOR_RGB2BGR)
     
     # Save the visualization
-    vis_path = os.path.join(vis_folder, f"vis_{filename}")
+    vis_path = VIS_DIR / f"vis_{filename}"
     cv2.imwrite(vis_path, blend_bgr)
     
     print(f"Processed & Visualized: {filename}")
 
 # Save the mathematical matrices for the evaluator script
-np.savez("Outputs/preds_perspective.npz", **predictions)
-print(f"Done! Check the '{vis_folder}' folder for your images.")
+if not predictions:
+    raise SystemExit("No Perspective Fields predictions were produced.")
+
+output_path = OUTPUT_DIR / "preds_perspective.npz"
+np.savez(output_path, **predictions)
+print(f"Done! Check the '{VIS_DIR}' folder for your images.")

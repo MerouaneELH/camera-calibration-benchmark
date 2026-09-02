@@ -1,23 +1,32 @@
-import os, glob, torch
+import sys
+import torch
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from benchmark.config import DATASET_B_UNDISTORTED_DIR, OUTPUT_DIR, VISUALIZATION_DIR, ensure_output_directories
+from benchmark.io import image_paths
 from geocalib import GeoCalib
 from geocalib import viz2d
 from geocalib.perspective_fields import get_perspective_field
 
 # Create folders for outputs
-vis_folder = 'visualizations/geocalib'
-os.makedirs(vis_folder, exist_ok=True)
-os.makedirs('Outputs', exist_ok=True) # Ensures the save folder exists
+VIS_DIR = VISUALIZATION_DIR / "geocalib"
+ensure_output_directories()
+VIS_DIR.mkdir(parents=True, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = GeoCalib().to(device)
 
 predictions = {}
-for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
-    filename = os.path.basename(img_path)
+input_paths = image_paths(DATASET_B_UNDISTORTED_DIR)
+
+for img_path in input_paths:
+    filename = img_path.name
     
     # GeoCalib loads the image as a tensor of shape [C, H, W]
     img_tensor = model.load_image(img_path).to(device)
@@ -49,7 +58,7 @@ for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
     vis_img = np.array(fig.canvas.renderer.buffer_rgba())
     vis_img = cv2.cvtColor(vis_img, cv2.COLOR_RGBA2BGR)
     
-    vis_path = os.path.join(vis_folder, f"vis_{filename}")
+    vis_path = VIS_DIR / f"vis_{filename}"
     cv2.imwrite(vis_path, vis_img)
     
     # CRITICAL: Close the figure to prevent RAM memory leaks
@@ -57,5 +66,9 @@ for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
     
     print(f"GeoCalib processed & visualized: {filename}")
 
-np.savez("Outputs/preds_geocalib.npz", **predictions)
-print(f"Done! Visualizations saved to '{vis_folder}'.")
+if not predictions:
+    raise SystemExit("No GeoCalib predictions were produced.")
+
+output_path = OUTPUT_DIR / "preds_geocalib.npz"
+np.savez(output_path, **predictions)
+print(f"Done! Visualizations saved to '{VIS_DIR}'.")

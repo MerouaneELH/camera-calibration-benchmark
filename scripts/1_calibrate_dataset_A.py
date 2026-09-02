@@ -1,33 +1,39 @@
 import cv2
 import numpy as np
-import glob
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from benchmark.config import BOARD, CALIBRATION_PATH, DATASET_A_DIR
+from benchmark.io import create_charuco_detector, image_paths, read_image
 
 # ==========================================
 # 1. PHYSICAL BOARD SETTINGS (38mm)
 # ==========================================
-SQUARES_X = 5          
-SQUARES_Y = 7          
-SQUARE_LENGTH = 0.038  
-MARKER_LENGTH = 0.029  
-
-dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
-board = cv2.aruco.CharucoBoard((SQUARES_X, SQUARES_Y), SQUARE_LENGTH, MARKER_LENGTH, dictionary)
-detector = cv2.aruco.CharucoDetector(board)
+board, detector = create_charuco_detector()
 
 # ==========================================
 # 2. PROCESS IMAGES
 # ==========================================
-image_files = glob.glob('Data/dataset_A_reference/*.jpg')
-image_files.sort()
+image_files = image_paths(DATASET_A_DIR)
 
 all_obj_points = []
 all_img_points = []
 image_size = None
 
+if not image_files:
+    raise SystemExit(f"No .jpg images found in {DATASET_DIR}")
+
 print(f"Processing {len(image_files)} images from Dataset A...")
 
 for image_file in image_files:
-    img = cv2.imread(image_file)
+    try:
+        img = read_image(image_file)
+    except ValueError as error:
+        print(f"Skipped {error}")
+        continue
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if image_size is None:
         image_size = (gray.shape[1], gray.shape[0])
@@ -48,8 +54,7 @@ for image_file in image_files:
 # 3. CALCULATE CALIBRATION
 # ==========================================
 if len(all_obj_points) == 0:
-    print("Error: No corners were successfully matched. Check your images.")
-    exit()
+    raise SystemExit("No corners were successfully matched. Check Dataset A images.")
 
 print("\nCalculating K Matrix...")
 # Standard OpenCV camera calibration
@@ -67,5 +72,13 @@ print("\nReference K Matrix:")
 print(np.round(K, 2))
 
 # Save for Dataset B
-np.savez("reference_calibration.npz", K=K, D=D)
-print("\nSaved reference parameters to 'reference_calibration.npz'.")
+OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+np.savez(
+    OUTPUT_PATH,
+    K=K,
+    D=D,
+    image_size=np.asarray(image_size),
+    square_length=BOARD.square_length,
+    marker_length=BOARD.marker_length,
+)
+print(f"\nSaved reference parameters to '{CALIBRATION_PATH}'.")

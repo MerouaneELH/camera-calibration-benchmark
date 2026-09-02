@@ -27,5 +27,8 @@ Data/dataset_A_reference/*
 Data/dataset_B_evaluation/*
 !Data/dataset_B_evaluation/.gitkeep
 
+Data/dataset_B_undistorted/*
+!Data/dataset_B_undistorted/.gitkeep
+
 visualizations/*
 !visualizations/.gitkeep

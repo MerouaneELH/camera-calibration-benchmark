@@ -1,29 +1,22 @@
 import cv2
 import numpy as np
-import glob
 import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from benchmark.config import CALIBRATION_PATH, DATASET_B_DIR
+from benchmark.io import create_charuco_detector, image_paths, load_calibration, read_image
 
 # Load the calibration from Dataset A
-try:
-    calib_data = np.load("reference_calibration.npz")
-    K = calib_data['K']
-    D = calib_data['D']
-except:
-    print("Error: Could not find reference_calibration.npz. Run Script 1 first!")
-    exit()
+K, D = load_calibration(CALIBRATION_PATH)
 
 # Same board dimensions
-SQUARES_X = 5
-SQUARES_Y = 7
-SQUARE_LENGTH = 0.038
-MARKER_LENGTH = 0.028
+board, detector = create_charuco_detector()
 
-dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
-board = cv2.aruco.CharucoBoard((SQUARES_X, SQUARES_Y), SQUARE_LENGTH, MARKER_LENGTH, dictionary)
-detector = cv2.aruco.CharucoDetector(board)
-
-image_files = glob.glob('Data/dataset_B_evaluation/*.jpg')
-image_files.sort()
+image_files = image_paths(DATASET_B_DIR)
 
 print(f"Calculating 3D Physical Ground Truth for {len(image_files)} Dataset B images...\n")
 print("-" * 50)
@@ -31,7 +24,11 @@ print(f"{'Image Name':<30} | {'Camera Distance (mm)':<20}")
 print("-" * 50)
 
 for image_file in image_files:
-    img = cv2.imread(image_file)
+    try:
+        img = read_image(image_file)
+    except ValueError as error:
+        print(f"Skipped {error}")
+        continue
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
     charuco_corners, charuco_ids, marker_corners, marker_ids = detector.detectBoard(gray)

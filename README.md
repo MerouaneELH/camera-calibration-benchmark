@@ -10,4 +10,24 @@ Empirical comparison of monocular AI-based camera calibration models (AnyCalib, 
 
 ## Setup
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m pip install -e AnyCalib
+python -m pip install -e GeoCalib
+```
+
+Use Python 3.10 or newer. Put the private `.jpg` files in
+`Data/dataset_A_reference` and `Data/dataset_B_evaluation`, then run these commands
+from any working directory:
+
+```bash
+python scripts/1_calibrate_dataset_A.py
+python scripts/undistort_dataset.py
+python models/run_anycalib.py
+python models/run_geocalib.py
+python models/run_perspective.py
+python scripts/evaluate_all.py
+```
+
+Calibration and prediction artifacts are written under `Outputs/`. Evaluation uses
+the generated undistorted Dataset B images and zero distortion for predicted pinhole
+matrices.
