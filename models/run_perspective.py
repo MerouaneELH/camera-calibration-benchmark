@@ -15,7 +15,7 @@ model = PerspectiveFields('Paramnet-360Cities-edina-uncentered').eval().cpu()
 predictions = {}
 
 # Process each image
-for img_path in glob.glob('dataset_B_evaluation/*.jpg'):
+for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
     filename = os.path.basename(img_path)
     img_bgr = cv2.imread(img_path)
     h, w = img_bgr.shape[:2]
@@ -25,12 +25,13 @@ for img_path in glob.glob('dataset_B_evaluation/*.jpg'):
         pred = model.inference(img_bgr=img_bgr)
     
     # 2. Extract Math (Focal Length & Center)
-    vfov_rad = math.radians(pred['vfov'].item())
+    vfov_rad = math.radians(pred['pred_general_vfov'].item())
     focal_length = (h / 2.0) / math.tan(vfov_rad / 2.0)
     
-    cx = pred['cx'].item() * w if pred['cx'].item() < 2 else pred['cx'].item()
-    cy = pred['cy'].item() * h if pred['cy'].item() < 2 else pred['cy'].item()
-    
+    # The model outputs relative center coordinates (e.g. 0.5 for the middle), 
+    # so we multiply by width (w) and height (h) to get actual pixels.
+    cx = pred['pred_rel_cx'].item() * w 
+    cy = pred['pred_rel_cy'].item() * h
     K_pred = np.array([[focal_length, 0, cx],
                        [0, focal_length, cy],
                        [0, 0, 1]])
@@ -57,5 +58,5 @@ for img_path in glob.glob('dataset_B_evaluation/*.jpg'):
     print(f"Processed & Visualized: {filename}")
 
 # Save the mathematical matrices for the evaluator script
-np.savez("preds_perspective.npz", **predictions)
+np.savez("Outputs/preds_perspective.npz", **predictions)
 print(f"Done! Check the '{vis_folder}' folder for your images.")

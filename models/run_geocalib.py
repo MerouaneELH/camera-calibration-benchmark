@@ -18,4 +18,4 @@ for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
     predictions[filename] = K_pred
     print(f"GeoCalib processed: {filename}")
 
-np.savez("preds_geocalib.npz", **predictions)
+np.savez("Outputs/preds_geocalib.npz", **predictions)
