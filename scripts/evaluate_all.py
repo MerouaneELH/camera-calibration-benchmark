@@ -5,7 +5,7 @@ import os
 import pandas as pd
 
 # Load Ground Truth
-gt_data = np.load("reference_calibration.npz")
+gt_data = np.load("Outputs/reference_calibration.npz")
 K_ref, D_ref = gt_data['K'], gt_data['D']
 
 # Setup ChArUco
@@ -14,13 +14,13 @@ detector = cv2.aruco.CharucoDetector(board)
 
 # Load AI Predictions
 models = {}
-for pred_file in glob.glob("preds_*.npz"):
+for pred_file in glob.glob("Outputs/preds_*.npz"):
     model_name = pred_file.replace("preds_", "").replace(".npz", "")
     models[model_name] = dict(np.load(pred_file))
 
 results = []
 
-for img_path in glob.glob('dataset_B_evaluation/*.jpg'):
+for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
     filename = os.path.basename(img_path)
     img = cv2.imread(img_path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -55,7 +55,7 @@ for img_path in glob.glob('dataset_B_evaluation/*.jpg'):
 
 # Save to CSV and Print Summary
 df = pd.DataFrame(results)
-df.to_csv("evaluation_results.csv", index=False)
+df.to_csv("Outputs/evaluation_results.csv", index=False)
 
 print("\n--- BENCHMARK SUMMARY (Overall Dataset Averages) ---")
 for model_name in models.keys():

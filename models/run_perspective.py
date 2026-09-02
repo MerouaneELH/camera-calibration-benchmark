@@ -2,7 +2,7 @@ import os, glob, torch, math
 import numpy as np
 import cv2
 from perspective2d import PerspectiveFields
-from perspective2d.utils import draw_perspective_fields
+from perspective2d.utils import draw_from_r_p_f_cx_cy
 
 # Create a folder to save the cool visual outputs
 vis_folder = 'visualizations/perspective_fields'
@@ -40,14 +40,18 @@ for img_path in glob.glob('Data/dataset_B_evaluation/*.jpg'):
     # 3. DRAW THE VECTORS! 
     # Convert image to RGB for the drawing tool
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    
-    # Extract the raw vector maps the AI predicted
-    up_vectors = pred['up']
-    latitude = pred['lati']
-    
-    # Blend the vectors onto the image
-    blend_rgb = draw_perspective_fields(img_rgb, up_vectors, latitude)
-    
+
+    # The new function mathematically projects the grid using the 5 camera parameters
+    blend_rgb = draw_from_r_p_f_cx_cy(
+        img_rgb,
+        pred['pred_roll'].item(),
+        pred['pred_pitch'].item(),
+        pred['pred_general_vfov'].item(),
+        pred['pred_rel_cx'].item(),
+        pred['pred_rel_cy'].item(),
+        "deg"
+    ).astype(np.uint8)
+
     # Convert back to BGR so OpenCV can save it correctly
     blend_bgr = cv2.cvtColor(blend_rgb, cv2.COLOR_RGB2BGR)
     
