@@ -41,6 +41,15 @@ EVALUATION_VISUALIZATION_DIR = VISUALIZATION_DIR / "evaluation"
 OBJECT_LENGTH_MM = 72.0
 OBJECT_WIDTH_MM = 49.0
 
+# Measured camera/tripod setup heights for Dataset B groups, in millimeters.
+DATASET_B_SETUP_HEIGHTS_MM = {
+    "1": 490.0,
+    "2": 630.0,
+    "3": 780.0,
+    "4": 930.0,
+    "5": 320.0,
+}
+
 
 def ensure_output_directories() -> None:
     """Create directories used for generated artifacts if they are absent."""

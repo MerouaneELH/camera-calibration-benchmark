@@ -20,12 +20,15 @@ sys.path.insert(0, str(ROOT))
 from benchmark.config import (
     DATASET_B_DIR,
     DATASET_B_METADATA_PATH,
+    DATASET_B_SETUP_HEIGHTS_MM,
     OBJECT_LENGTH_MM,
     OBJECT_WIDTH_MM,
 )
 from benchmark.io import image_paths
 
 WINDOW = "Dataset B annotation"
+CANVAS_WIDTH = 1400
+CANVAS_HEIGHT = 900
 
 
 def load_rows() -> dict[str, dict[str, str]]:
@@ -53,26 +56,70 @@ def save_rows(rows: dict[str, dict[str, str]]) -> None:
 
 
 def annotate_image(path: Path, height_mm: float, true_length_mm: float, true_width_mm: float) -> dict[str, str] | None:
-    """Collect four original-resolution clicks for one image."""
+    """Collect four original-resolution clicks with zoom and pan controls."""
     image = cv2.imread(str(path))
     if image is None:
         print(f"Skipping unreadable image: {path}")
         return None
     original_height, original_width = image.shape[:2]
-    max_width, max_height = 1400, 900
-    scale = min(1.0, max_width / original_width, max_height / original_height)
-    display = cv2.resize(image, None, fx=scale, fy=scale) if scale < 1 else image.copy()
+    base_scale = min(1.0, CANVAS_WIDTH / original_width, CANVAS_HEIGHT / original_height)
+    zoom = 1.0
+    pan_x = (CANVAS_WIDTH - original_width * base_scale) / 2
+    pan_y = (CANVAS_HEIGHT - original_height * base_scale) / 2
     points: list[tuple[int, int]] = []
 
-    def click(_event, x, y, _flags, _param):
-        if _event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
-            points.append((round(x / scale), round(y / scale)))
+    def image_to_screen(point: tuple[int, int]) -> tuple[int, int]:
+        display_scale = base_scale * zoom
+        return round(point[0] * display_scale + pan_x), round(point[1] * display_scale + pan_y)
 
-    cv2.namedWindow(WINDOW)
+    def screen_to_image(x: int, y: int) -> tuple[int, int]:
+        display_scale = base_scale * zoom
+        return round((x - pan_x) / display_scale), round((y - pan_y) / display_scale)
+
+    def click(event, x, y, _flags, _param):
+        nonlocal zoom, pan_x, pan_y
+        if event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
+            point = screen_to_image(x, y)
+            if 0 <= point[0] < original_width and 0 <= point[1] < original_height:
+                points.append(point)
+        elif event == cv2.EVENT_MOUSEWHEEL:
+            old_scale = base_scale * zoom
+            old_image_x = (x - pan_x) / old_scale
+            old_image_y = (y - pan_y) / old_scale
+            zoom *= 1.2 if _flags > 0 else 1 / 1.2
+            zoom = min(8.0, max(1.0, zoom))
+            new_scale = base_scale * zoom
+            pan_x = x - old_image_x * new_scale
+            pan_y = y - old_image_y * new_scale
+
+    def render() -> np.ndarray:
+        display_scale = base_scale * zoom
+        resized = cv2.resize(image, None, fx=display_scale, fy=display_scale)
+        canvas = np.zeros((CANVAS_HEIGHT, CANVAS_WIDTH, 3), dtype=np.uint8)
+        x0, y0 = round(pan_x), round(pan_y)
+        x1, y1 = max(0, x0), max(0, y0)
+        x2, y2 = min(CANVAS_WIDTH, x0 + resized.shape[1]), min(CANVAS_HEIGHT, y0 + resized.shape[0])
+        if x1 < x2 and y1 < y2:
+            canvas[y1:y2, x1:x2] = resized[y1 - y0:y2 - y0, x1 - x0:x2 - x0]
+        return canvas
+
+    def move_pan(dx: int, dy: int) -> None:
+        nonlocal pan_x, pan_y
+        pan_x += dx
+        pan_y += dy
+
+    def reset_view() -> None:
+        nonlocal zoom, pan_x, pan_y
+        zoom = 1.0
+        pan_x = (CANVAS_WIDTH - original_width * base_scale) / 2
+        pan_y = (CANVAS_HEIGHT - original_height * base_scale) / 2
+
+    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WINDOW, CANVAS_WIDTH, CANVAS_HEIGHT)
     cv2.setMouseCallback(WINDOW, click)
     while True:
-        canvas = display.copy()
-        display_points = [(round(x * scale), round(y * scale)) for x, y in points]
+        canvas = render()
+        display_points = [image_to_screen(point) for point in points]
         for index, point in enumerate(display_points):
             cv2.circle(canvas, point, 6, (0, 255, 0), -1)
             cv2.putText(canvas, f"P{index + 1}", (point[0] + 8, point[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
@@ -86,6 +133,16 @@ def annotate_image(path: Path, height_mm: float, true_length_mm: float, true_wid
             value = input(f"Setup height for {path.name} in mm [{height_mm}]: ").strip()
             if value:
                 height_mm = float(value)
+        elif key in (ord("z"), ord("0")):
+            reset_view()
+        elif key in (81, ord("a")):
+            move_pan(-50, 0)
+        elif key in (83, ord("d")):
+            move_pan(50, 0)
+        elif key in (82, ord("w")):
+            move_pan(0, -50)
+        elif key in (84, ord("s")):
+            move_pan(0, 50)
         elif key == 13 and len(points) == 4:
             cv2.destroyWindow(WINDOW)
             row = {"image": path.name, "experimental_setup_height_mm": str(height_mm), "true_length_mm": str(true_length_mm), "true_width_mm": str(true_width_mm)}
@@ -100,12 +157,15 @@ def main() -> None:
     """Annotate all Dataset B images using the configured rectangle dimensions."""
     rows = load_rows()
     images = image_paths(DATASET_B_DIR)
-    height_mm = float(input("Experimental setup height in mm: "))
     true_length_mm = OBJECT_LENGTH_MM
     true_width_mm = OBJECT_WIDTH_MM
     print(f"Using measured rectangle dimensions: {true_length_mm:.1f} mm x {true_width_mm:.1f} mm")
     for path in images:
-        print(f"Annotating {path.name}; click P1, P2, P3, P4.")
+        group = path.stem.split(".", 1)[0]
+        if group not in DATASET_B_SETUP_HEIGHTS_MM:
+            raise ValueError(f"Cannot determine setup-height group from filename: {path.name}")
+        height_mm = DATASET_B_SETUP_HEIGHTS_MM[group]
+        print(f"Annotating {path.name}; setup height={height_mm:.0f} mm; click P1, P2, P3, P4.")
         row = annotate_image(path, height_mm, true_length_mm, true_width_mm)
         if row is None:
             break

@@ -1,0 +1,83 @@
+{
+  "model": "Perspective Fields",
+  "input_directory": "C:\\Users\\pc\\Desktop\\cameraCAlib\\Data\\dataset_B_evaluation",
+  "input_images": [
+    {
+      "image": "1.1.jpg",
+      "sha256": "a362a70cd02214c61fcdf2770d567f0e5859e1ab0467916d29b771a0bbb84286"
+    },
+    {
+      "image": "1.2.jpg",
+      "sha256": "a6e1f091d6786638a8d5b511f2855d628e55ba3122eb2425c15d3e647b1454f0"
+    },
+    {
+      "image": "1.3.jpg",
+      "sha256": "a6ffda0e93d0037baddaf1d9b6e1f449b5fc33c3adf4736279b4b12fc158e938"
+    },
+    {
+      "image": "2.1.jpg",
+      "sha256": "e806ce4863280470128a6c56789c46a573f05e986846b1e50798fe6ca6072c22"
+    },
+    {
+      "image": "2.2.jpg",
+      "sha256": "d60dc27229c9584e87f226baaa155fc88e07908ef571dbe750d038ac338d2a3f"
+    },
+    {
+      "image": "2.3.jpg",
+      "sha256": "f646fcd945339e0f7c4426f2d1a4d743c1c03d0889ee7122668fc28dd2b2e78c"
+    },
+    {
+      "image": "3.1.jpg",
+      "sha256": "fa6ead085073c467f6c909f0df1d23aa4d39ba1ee79aa50bb7f6a436e0032ea0"
+    },
+    {
+      "image": "3.2.jpg",
+      "sha256": "0b1251c010e6d896ee97b882901e91403ecc7083a01612a417e43ff086bd2b31"
+    },
+    {
+      "image": "3.3.jpg",
+      "sha256": "4fea7e8790eb156ecffeeffbb6214c7fdff2ad8ed9c5c6a3e71e1d01962fad78"
+    },
+    {
+      "image": "4.1.jpg",
+      "sha256": "582e02c8e9c9198eddcba9b63a96eec8b8ddb2ad8e6f62370ec6cc0d7eac2cb7"
+    },
+    {
+      "image": "4.2.jpg",
+      "sha256": "e1cf851b75be9fee1067c52198f6acb7faf0c1ea96d3aad8ab485a9cb394c827"
+    },
+    {
+      "image": "4.3.jpg",
+      "sha256": "c4f3145d201a77a828cec4ca9bd3335e01bb3d0f79c26e6f5b0fb8281b01b695"
+    },
+    {
+      "image": "5.1.jpg",
+      "sha256": "6f91e59c20c3c624f76d8cb59daaafeabac83ebff2a56aa1d0db986315f4f92c"
+    },
+    {
+      "image": "5.2.jpg",
+      "sha256": "1eff4615fc8ee7aeeaccfbc238609a94e577c57a167ab5cfd67ed3265d225dbe"
+    },
+    {
+      "image": "5.3.jpg",
+      "sha256": "cea2d6ec2e69be181782eb8321a36e322fd1453917f77c17934190c2ef132e15"
+    }
+  ],
+  "prediction_images": [
+    "1.1.jpg",
+    "1.2.jpg",
+    "1.3.jpg",
+    "2.1.jpg",
+    "2.2.jpg",
+    "2.3.jpg",
+    "3.1.jpg",
+    "3.2.jpg",
+    "3.3.jpg",
+    "4.1.jpg",
+    "4.2.jpg",
+    "4.3.jpg",
+    "5.1.jpg",
+    "5.2.jpg",
+    "5.3.jpg"
+  ]
+}
