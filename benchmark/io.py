@@ -31,12 +31,15 @@ def image_paths(directory: Path) -> list[Path]:
 
 
 def load_dataset_metadata(path: Path, images: list[Path]) -> dict[str, dict[str, str]]:
-    """Load and validate physical metadata for every Dataset B image.
+    """Load and validate manual object annotations and setup-height metadata.
 
-    The CSV is experimental ground truth supplied by the experimenter. Values
-    are never inferred from filenames or image geometry.
+    Physical object dimensions and setup height are supplied by the experimenter;
+    they are never inferred from filenames or image geometry.
     """
-    required = {"image", "physical_distance_mm", "viewpoint_angle_deg", "horizontal_position"}
+    required = {
+        "image", "experimental_setup_height_mm", "true_length_mm", "true_width_mm",
+        "p1_x", "p1_y", "p2_x", "p2_y", "p3_x", "p3_y", "p4_x", "p4_y",
+    }
     if not path.is_file():
         raise FileNotFoundError(f"Dataset metadata not found: {path}")
     with path.open(newline="", encoding="utf-8-sig") as handle:
@@ -56,16 +59,18 @@ def load_dataset_metadata(path: Path, images: list[Path]) -> dict[str, dict[str,
         if name in metadata:
             raise ValueError(f"Duplicate metadata row for image '{name}'")
         try:
-            distance = float(row["physical_distance_mm"])
-            angle = float(row["viewpoint_angle_deg"])
+            height = float(row["experimental_setup_height_mm"])
+            true_length = float(row["true_length_mm"])
+            true_width = float(row["true_width_mm"])
+            coordinates = [float(row[f"p{index}_{axis}"]) for index in range(1, 5) for axis in ("x", "y")]
         except (TypeError, ValueError) as error:
-            raise ValueError(f"Metadata row {row_number} has non-numeric distance or angle") from error
-        if not np.isfinite(distance) or distance <= 0:
-            raise ValueError(f"Metadata row {row_number} has invalid physical_distance_mm: {distance}")
-        if not np.isfinite(angle):
-            raise ValueError(f"Metadata row {row_number} has invalid viewpoint_angle_deg: {angle}")
-        if not (row.get("horizontal_position") or "").strip():
-            raise ValueError(f"Metadata row {row_number} has an empty horizontal_position")
+            raise ValueError(f"Metadata row {row_number} has non-numeric measurement or corner data") from error
+        if not np.isfinite(height) or height <= 0:
+            raise ValueError(f"Metadata row {row_number} has invalid experimental_setup_height_mm: {height}")
+        if not np.isfinite(true_length) or true_length <= 0 or not np.isfinite(true_width) or true_width <= 0:
+            raise ValueError(f"Metadata row {row_number} has invalid true object dimensions")
+        if not np.isfinite(coordinates).all():
+            raise ValueError(f"Metadata row {row_number} has non-finite object corner coordinates")
         metadata[name] = row
 
     extra = sorted(set(metadata) - image_names)

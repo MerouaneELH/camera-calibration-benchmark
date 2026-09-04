@@ -37,6 +37,10 @@ DATASET_B_UNDISTORTED_DIR = DATA_DIR / "dataset_B_undistorted"
 DATASET_B_METADATA_PATH = DATASET_B_DIR / "metadata.csv"
 EVALUATION_VISUALIZATION_DIR = VISUALIZATION_DIR / "evaluation"
 
+# Independently measured dimensions of the same rectangle present in Dataset B.
+OBJECT_LENGTH_MM = 72.0
+OBJECT_WIDTH_MM = 49.0
+
 
 def ensure_output_directories() -> None:
     """Create directories used for generated artifacts if they are absent."""

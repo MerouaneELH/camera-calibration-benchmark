@@ -2,7 +2,7 @@
 
 This project compares monocular camera-calibration models with a traditional
 OpenCV ChArUco calibration. It measures how accurately each predicted pinhole
-camera recovers the distance from the camera to a known physical board.
+camera reconstructs the dimensions of a known planar object in millimeters.
 
 The original Dataset A and Dataset B images were preliminary/random images
 without documented physical acquisition conditions. They are being replaced by
@@ -90,7 +90,6 @@ Dataset B original -> model predictions -> ChArUco PnP -> evaluation CSV
 
 ```powershell
 python scripts/1_calibrate_dataset_A.py
-python scripts/undistort_dataset.py
 python models/run_anycalib.py
 python models/run_geocalib.py
 python models/run_perspective.py
@@ -107,37 +106,40 @@ The CSV is the source of truth and must contain exactly one row per Dataset B
 image:
 
 ```csv
-image,physical_distance_mm,viewpoint_angle_deg,horizontal_position
-B_001.jpg,500,0,center
-B_002.jpg,500,10,left
+image,experimental_setup_height_mm,true_length_mm,true_width_mm,p1_x,p1_y,p2_x,p2_y,p3_x,p3_y,p4_x,p4_y
+B_001.jpg,<measured_height>,<measured_length>,<measured_width>,<p1_x>,<p1_y>,<p2_x>,<p2_y>,<p3_x>,<p3_y>,<p4_x>,<p4_y>
+B_002.jpg,<measured_height>,<measured_length>,<measured_width>,<p1_x>,<p1_y>,<p2_x>,<p2_y>,<p3_x>,<p3_y>,<p4_x>,<p4_y>
 ```
 
-The optional `vertical_position` column is also preserved. `physical_distance_mm`
-is the independently measured perpendicular distance from the camera optical
-center to the ChArUco board plane, in millimeters. The evaluator rejects missing
-rows, duplicate rows, nonexistent filenames, non-positive distances, and invalid
-numeric values. It never invents metadata from filenames or image geometry.
+The object corners must be ordered P1 top-left, P2 top-right, P3 bottom-right,
+P4 bottom-left. `experimental_setup_height_mm` is only the measured camera or
+tripod setup height relative to the supporting surface; it is not camera-to-board
+distance and is never used as a geometric constraint. `true_length_mm` and
+`true_width_mm` must come from an independent physical measurement. The
+evaluator rejects missing rows, duplicate rows, nonexistent filenames,
+non-positive measurements, and invalid numeric values. It never invents values
+from filenames or image geometry.
 
 ## Evaluation Methodology
 
-Primary evaluation uses original Dataset B images:
+Primary evaluation uses original Dataset B images and identical manual corners:
 
 ```text
 original Dataset B -> calibration model -> predicted K
-				   -> ChArUco detection + PnP -> predicted_distance_mm
-				   -> comparison with physical_distance_mm
+				   -> ChArUco plane + manual object corners
+				   -> ray-plane reconstruction -> estimated dimensions
+				   -> comparison with true_length_mm and true_width_mm
 ```
 
-`physical_distance_mm` is the independent physical ground truth.
-`reference_distance_mm` is obtained using the traditional ChArUco reference
-calibration (`K_ref`, `D_ref`) and is not absolute ground truth.
-`predicted_distance_mm` is obtained using each tested model's predicted
-intrinsic matrix. All reported distances are perpendicular camera-center to
-board-plane distances, not distances to the board origin.
+`experimental_setup_height_mm` is a grouping variable only. The physical ground
+truth for the primary experiment is the independently measured object size.
+Each method obtains its own intrinsic matrix. ChArUco establishes the metric
+plane, and calibrated ray-plane intersections reconstruct the object corners in
+millimeters. No pixels-to-millimeters shortcut is used.
 
-The evaluator writes signed and absolute errors against the physical measurement,
-then calculates MAE, RMSE, median absolute error, maximum absolute error, and
-95th-percentile absolute error globally and for the observed angles and distances.
+The evaluator writes signed, absolute, and percentage length/width errors and
+calculates MAE, RMSE, median, maximum, 95th percentile, mean percentage error,
+and standard deviation globally and for each observed setup height.
 
 ## Root-Owned File Guide
 

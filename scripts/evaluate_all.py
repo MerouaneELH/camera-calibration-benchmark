@@ -1,8 +1,9 @@
-"""Evaluate original Dataset B images against physical distance metadata.
+"""Evaluate planar object dimensions using independent camera calibrations.
 
-The supplied metadata is independent physical ground truth. The reference
-calibration and each predicted intrinsic matrix solve PnP on original,
-distorted images. Distance means perpendicular camera-to-board-plane distance.
+Original Dataset B images and the same manually annotated four object corners
+are used for every method. ChArUco detections establish each method's metric
+board plane; ray-plane intersection then reconstructs object length and width.
+The setup height is a grouping variable only, never a geometric constraint.
 """
 
 import json
@@ -17,25 +18,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from benchmark.config import (  # noqa: E402
-    CALIBRATION_PATH,
-    DATASET_B_DIR,
-    DATASET_B_METADATA_PATH,
-    EVALUATION_VISUALIZATION_DIR,
-    OUTPUT_DIR,
-)
-from benchmark.io import (  # noqa: E402
-    create_charuco_detector,
-    file_digest,
-    image_paths,
-    load_calibration,
-    load_dataset_metadata,
-    read_image,
-)
-from benchmark.geometry import perpendicular_distance_mm  # noqa: E402
+from benchmark.config import CALIBRATION_PATH, DATASET_B_DIR, DATASET_B_METADATA_PATH, EVALUATION_VISUALIZATION_DIR, OUTPUT_DIR  # noqa: E402
+from benchmark.geometry import board_plane_points_mm, object_dimensions_mm  # noqa: E402
+from benchmark.io import create_charuco_detector, file_digest, image_paths, load_calibration, load_dataset_metadata, read_image  # noqa: E402
 
 METHODS = {
-    "reference": "ChArUco Reference",
+    "opencv": "OpenCV Reference",
     "anycalib": "AnyCalib",
     "geocalib": "GeoCalib",
     "perspective": "Perspective Fields",
@@ -43,29 +31,25 @@ METHODS = {
 
 
 def valid_intrinsics(matrix: object) -> bool:
-    """Return whether a matrix satisfies the minimum pinhole-camera contract."""
+    """Return whether a matrix is a finite, valid pinhole intrinsic matrix."""
     matrix = np.asarray(matrix)
-    return (
-        matrix.shape == (3, 3)
-        and np.isfinite(matrix).all()
-        and matrix[0, 0] > 0
-        and matrix[1, 1] > 0
-        and abs(matrix[2, 2] - 1) < 1e-6
-    )
+    return matrix.shape == (3, 3) and np.isfinite(matrix).all() and matrix[0, 0] > 0 and matrix[1, 1] > 0 and abs(matrix[2, 2] - 1) < 1e-6
 
 
 def load_predictions(images: list[Path]) -> dict[str, dict[str, np.ndarray]]:
-    """Load fresh filename-keyed predictions; absent artifacts remain explicit."""
+    """Load fresh model predictions, retaining missing artifacts as failures."""
     current = {path.name: file_digest(path) for path in images}
-    loaded: dict[str, dict[str, np.ndarray]] = {}
-    for model in ("anycalib", "geocalib", "perspective"):
+    loaded = {}
+    for model in METHODS:
+        if model == "opencv":
+            continue
         path = OUTPUT_DIR / f"preds_{model}.npz"
-        if not path.is_file():
+        if not path.exists():
             loaded[model] = {}
             continue
         manifest_path = path.with_suffix(".json")
-        if not manifest_path.is_file():
-            raise ValueError(f"Missing prediction manifest for {path.name}; regenerate predictions")
+        if not manifest_path.exists():
+            raise ValueError(f"Missing manifest for {path.name}; regenerate predictions")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         recorded = {entry["image"]: entry["sha256"] for entry in manifest.get("input_images", [])}
         if recorded != current:
@@ -75,45 +59,52 @@ def load_predictions(images: list[Path]) -> dict[str, dict[str, np.ndarray]]:
     return loaded
 
 
-def solve_distance(obj_points, img_points, matrix, distortion) -> float | None:
-    """Solve PnP and return perpendicular board-plane distance in millimeters."""
+def estimate_dimensions(obj_points, img_points, matrix, distortion, object_pixels):
+    """Estimate object dimensions by solving the board pose and intersecting rays."""
     if not valid_intrinsics(matrix):
         return None
     try:
         success, rvec, tvec = cv2.solvePnP(obj_points, img_points, matrix, distortion)
+        if not success:
+            return None
+        plane_points = board_plane_points_mm(object_pixels, matrix, distortion, rvec, tvec)
+        return object_dimensions_mm(plane_points)
     except cv2.error:
         return None
-    return perpendicular_distance_mm(rvec, tvec) if success else None
 
 
-def metric_rows(values: pd.Series) -> dict[str, float]:
-    """Calculate summary statistics from absolute errors, ignoring failures."""
-    values = values.dropna().astype(float)
-    if values.empty:
-        return {key: float("nan") for key in ("mae_mm", "rmse_mm", "median_error_mm", "max_error_mm", "p95_error_mm")}
+def dimension_metrics(results: pd.DataFrame, model: str, dimension: str) -> dict[str, float]:
+    """Return aggregate dimensional error and repeatability statistics."""
+    errors = results[f"{model}_{dimension}_absolute_error_mm"].dropna().astype(float)
+    percentages = results[f"{model}_{dimension}_percentage_error"].dropna().astype(float)
+    if errors.empty:
+        return {key: float("nan") for key in ("mae_mm", "rmse_mm", "median_absolute_error_mm", "max_absolute_error_mm", "p95_absolute_error_mm", "mean_percentage_error", "median_percentage_error", "std_error_mm")}
     return {
-        "mae_mm": float(values.mean()),
-        "rmse_mm": float(np.sqrt(np.mean(values**2))),
-        "median_error_mm": float(values.median()),
-        "max_error_mm": float(values.max()),
-        "p95_error_mm": float(values.quantile(0.95)),
+        "mae_mm": float(errors.mean()),
+        "rmse_mm": float(np.sqrt(np.mean(errors**2))),
+        "median_absolute_error_mm": float(errors.median()),
+        "max_absolute_error_mm": float(errors.max()),
+        "p95_absolute_error_mm": float(errors.quantile(0.95)),
+        "mean_percentage_error": float(percentages.mean()),
+        "median_percentage_error": float(percentages.median()),
+        "std_error_mm": float(errors.std(ddof=1)) if len(errors) > 1 else 0.0,
     }
 
 
 def build_summary(results: pd.DataFrame) -> pd.DataFrame:
-    """Create global and observed-angle/distance grouped summaries."""
+    """Build global and setup-height grouped summaries from actual metadata."""
     groups = [("global", "all", results)]
-    for column in ("viewpoint_angle_deg", "physical_distance_mm"):
-        groups.extend((column, value, group) for value, group in results.groupby(column, dropna=False))
+    groups.extend(("experimental_setup_height_mm", value, group) for value, group in results.groupby("experimental_setup_height_mm", dropna=False))
     rows = []
     for group_by, group_value, group in groups:
         for model, label in METHODS.items():
-            rows.append({"group_by": group_by, "group_value": group_value, "method": label, **metric_rows(group[f"{model}_error_mm"])})
+            for dimension in ("length", "width"):
+                rows.append({"group_by": group_by, "group_value": group_value, "method": label, "dimension": dimension, **dimension_metrics(group, model, dimension)})
     return pd.DataFrame(rows)
 
 
 def save_plot(figure, filename: str) -> None:
-    """Save and close one evaluation plot."""
+    """Save one evaluation plot and release its Matplotlib resources."""
     EVALUATION_VISUALIZATION_DIR.mkdir(parents=True, exist_ok=True)
     figure.tight_layout()
     figure.savefig(EVALUATION_VISUALIZATION_DIR / filename, dpi=150)
@@ -121,104 +112,89 @@ def save_plot(figure, filename: str) -> None:
 
 
 def make_plots(results: pd.DataFrame) -> None:
-    """Generate requested physical-distance plots with missing values ignored."""
-    for filename, x_column, xlabel in (
-        ("error_vs_viewpoint_angle.png", "viewpoint_angle_deg", "Viewpoint angle (deg)"),
-        ("error_vs_physical_distance.png", "physical_distance_mm", "Physical distance (mm)"),
-    ):
+    """Create required dimensional plots grouped by measured setup height."""
+    for dimension in ("length", "width"):
+        for metric, label in (("absolute_error_mm", "Absolute error (mm)"), ("percentage_error", "Absolute percentage error (%)")):
+            figure, axis = plt.subplots()
+            for model, method in METHODS.items():
+                axis.scatter(results["experimental_setup_height_mm"], results[f"{model}_{dimension}_{metric}"], label=method, alpha=0.7)
+            axis.set(xlabel="Experimental setup height (mm)", ylabel=f"{dimension.title()} {label}")
+            axis.legend()
+            save_plot(figure, f"{dimension}_{metric}_vs_setup_height.png")
+
         figure, axis = plt.subplots()
-        for model, label in METHODS.items():
-            axis.scatter(results[x_column], results[f"{model}_error_mm"], label=label, alpha=0.7)
-        axis.set(xlabel=xlabel, ylabel="Absolute distance error (mm)")
+        values, labels = [], []
+        for model, method in METHODS.items():
+            errors = results[f"{model}_{dimension}_signed_error_mm"].dropna()
+            if not errors.empty:
+                values.append(errors)
+                labels.append(method)
+        if values:
+            axis.boxplot(values, tick_labels=labels)
+        else:
+            axis.text(0.5, 0.5, "No valid measurements", ha="center", va="center")
+        axis.set_ylabel(f"{dimension.title()} signed error (mm)")
+        save_plot(figure, f"{dimension}_error_boxplot.png")
+
+        figure, axis = plt.subplots()
+        for model, method in METHODS.items():
+            axis.scatter(results[f"true_{dimension}_mm"], results[f"{model}_estimated_{dimension}_mm"], label=method, alpha=0.7)
+        axis.set(xlabel=f"True {dimension} (mm)", ylabel=f"Estimated {dimension} (mm)")
         axis.legend()
-        save_plot(figure, filename)
-
-    figure, axis = plt.subplots()
-    values, labels = [], []
-    for model, label in METHODS.items():
-        errors = results[f"{model}_error_mm"].dropna()
-        if not errors.empty:
-            values.append(errors)
-            labels.append(label)
-    if values:
-        axis.boxplot(values, tick_labels=labels)
-    else:
-        axis.text(0.5, 0.5, "No valid distance errors", ha="center", va="center")
-    axis.set_ylabel("Absolute distance error (mm)")
-    save_plot(figure, "method_error_boxplot.png")
-
-    figure, axis = plt.subplots()
-    for model, label in METHODS.items():
-        axis.scatter(results["physical_distance_mm"], results[f"{model}_distance_mm"], label=label, alpha=0.7)
-    axis.set(xlabel="Physical distance (mm)", ylabel="Predicted/reference distance (mm)")
-    axis.legend()
-    save_plot(figure, "predicted_vs_physical_distance.png")
-
-    figure, axis = plt.subplots()
-    axis.scatter(results["physical_distance_mm"], results["reference_distance_mm"], label=METHODS["reference"], alpha=0.7)
-    axis.set(xlabel="Physical distance (mm)", ylabel="Reference distance (mm)")
-    axis.legend()
-    save_plot(figure, "reference_vs_physical_distance.png")
+        save_plot(figure, f"estimated_{dimension}_vs_true.png")
 
 
 def main() -> None:
-    """Validate metadata, evaluate every image, and write CSVs and plots."""
+    """Validate inputs, reconstruct dimensions, and write results and plots."""
     images = image_paths(DATASET_B_DIR)
     metadata = load_dataset_metadata(DATASET_B_METADATA_PATH, images)
     k_ref, distortion = load_calibration(CALIBRATION_PATH)
     predictions = load_predictions(images)
+    matrices = {"opencv": {path.name: k_ref for path in images}, **predictions}
     board, detector = create_charuco_detector()
     rows = []
 
     for image_path in images:
         name = image_path.name
         info = metadata[name]
-        row = {
-            "image": name,
-            "physical_distance_mm": float(info["physical_distance_mm"]),
-            "viewpoint_angle_deg": float(info["viewpoint_angle_deg"]),
-            "horizontal_position": info["horizontal_position"].strip(),
-            "vertical_position": (info.get("vertical_position") or "").strip(),
-        }
-        obj_points = img_points = None
+        row = {"filename": name, "experimental_setup_height_mm": float(info["experimental_setup_height_mm"]), "true_length_mm": float(info["true_length_mm"]), "true_width_mm": float(info["true_width_mm"]), "status": "ok"}
+        object_pixels = np.asarray([[float(info[f"p{index}_{axis}"]) for axis in ("x", "y")] for index in range(1, 5)], dtype=np.float64)
         try:
             image = read_image(image_path)
             corners, ids, _, _ = detector.detectBoard(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
             if corners is None or ids is None or len(corners) < 4:
                 raise ValueError("insufficient ChArUco corners")
             obj_points, img_points = board.matchImagePoints(corners, ids)
-            reference = solve_distance(obj_points, img_points, k_ref, distortion)
-            row["reference_distance_mm"] = reference
-            row["reference_status"] = "ok" if reference is not None else "pnp_failed"
         except (ValueError, cv2.error) as error:
-            row["reference_distance_mm"] = np.nan
-            row["reference_status"] = str(error)
+            row["status"] = str(error)
+            obj_points = img_points = None
 
-        for model, values in predictions.items():
-            matrix = values.get(name)
-            distance = solve_distance(obj_points, img_points, matrix, distortion) if obj_points is not None and matrix is not None else None
-            row[f"{model}_distance_mm"] = distance
-            row[f"{model}_status"] = "ok" if distance is not None else ("missing_prediction" if matrix is None else "pnp_failed_or_invalid_K")
-            row[f"{model}_focal_error_pct"] = (
-                abs(np.mean(np.diag(matrix)[:2]) - np.mean(np.diag(k_ref)[:2]))
-                / np.mean(np.diag(k_ref)[:2])
-                * 100
-                if matrix is not None and valid_intrinsics(matrix)
-                else np.nan
-            )
+        for model, model_predictions in matrices.items():
+            matrix = model_predictions.get(name)
+            dimensions = estimate_dimensions(obj_points, img_points, matrix, distortion, object_pixels) if obj_points is not None and matrix is not None else None
+            estimated_length, estimated_width = dimensions if dimensions is not None else (np.nan, np.nan)
+            row[f"{model}_estimated_length_mm"] = estimated_length
+            row[f"{model}_estimated_width_mm"] = estimated_width
+            row[f"{model}_status"] = "ok" if dimensions is not None else ("missing_prediction" if matrix is None else "reconstruction_failed")
         rows.append(row)
 
     results = pd.DataFrame(rows)
     for model in METHODS:
-        results[f"{model}_signed_error_mm"] = results[f"{model}_distance_mm"] - results["physical_distance_mm"]
-        results[f"{model}_error_mm"] = results[f"{model}_signed_error_mm"].abs()
+        for dimension in ("length", "width"):
+            true_column = f"true_{dimension}_mm"
+            estimate_column = f"{model}_estimated_{dimension}_mm"
+            signed_column = f"{model}_{dimension}_signed_error_mm"
+            absolute_column = f"{model}_{dimension}_absolute_error_mm"
+            results[signed_column] = results[estimate_column] - results[true_column]
+            results[absolute_column] = results[signed_column].abs()
+            results[f"{model}_{dimension}_percentage_error"] = results[absolute_column] / results[true_column] * 100
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     results.to_csv(OUTPUT_DIR / "evaluation_results.csv", index=False)
     build_summary(results).to_csv(OUTPUT_DIR / "evaluation_summary.csv", index=False)
     make_plots(results)
     print(f"Dataset B images: {len(images)}; metadata rows: {len(metadata)}; evaluated: {len(results)}")
     for model, label in METHODS.items():
-        success_count = int(results[f"{model}_distance_mm"].notna().sum())
-        print(f"{label} successful predictions: {success_count}; failures: {len(results) - success_count}")
+        print(f"{label}: length successes={results[f'{model}_estimated_length_mm'].notna().sum()}, width successes={results[f'{model}_estimated_width_mm'].notna().sum()}")
 
 
 if __name__ == "__main__":

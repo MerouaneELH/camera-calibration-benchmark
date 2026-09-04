@@ -1,10 +1,9 @@
 """Estimate and report ChArUco board distances for Dataset B.
 
 This diagnostic stage uses the reference calibration and the original Dataset
-B images.  It detects board corners, solves PnP with the measured distortion,
-and reports perpendicular board-plane distance in millimeters. It does not
-generate model predictions; ``evaluate_all.py`` performs the metadata-driven
-evaluation on the original image set.
+B images. It detects board corners, solves PnP with the measured distortion,
+and reports supplementary perpendicular board-plane distance in millimeters.
+It does not generate model predictions or physical object dimensions.
 """
 
 import cv2
@@ -28,7 +27,7 @@ board, detector = create_charuco_detector()
 
 image_files = image_paths(DATASET_B_DIR)
 
-print(f"Calculating 3D Physical Ground Truth for {len(image_files)} Dataset B images...\n")
+print(f"Calculating supplementary reference distances for {len(image_files)} Dataset B images...\n")
 print("-" * 50)
 print(f"{'Image Name':<30} | {'Camera Distance (mm)':<20}")
 print("-" * 50)
@@ -63,4 +62,4 @@ for image_file in image_files:
         print(f"{os.path.basename(image_file):<30} | Board not detected")
 
 print("-" * 50)
-print("Dataset B processing complete! These are your Ground Truth measurements.")
+print("Dataset B supplementary reference-distance processing complete.")
