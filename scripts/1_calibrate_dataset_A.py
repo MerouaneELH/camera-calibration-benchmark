@@ -1,3 +1,11 @@
+"""Estimate reference intrinsics from Dataset A's ChArUco observations.
+
+The script detects board corners in every supported Dataset A image, retains
+images with enough correspondences, and calls OpenCV's standard calibration.
+The resulting ``K`` and ``D`` arrays, board metadata, and image size are saved
+to ``Outputs/reference_calibration.npz`` for all downstream stages.
+"""
+
 import cv2
 import numpy as np
 import sys
@@ -72,13 +80,17 @@ print("\nReference K Matrix:")
 print(np.round(K, 2))
 
 # Save for Dataset B
-OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+CALIBRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
 np.savez(
-    OUTPUT_PATH,
+    CALIBRATION_PATH,
     K=K,
     D=D,
     image_size=np.asarray(image_size),
+    squares_x=BOARD.squares_x,
+    squares_y=BOARD.squares_y,
     square_length=BOARD.square_length,
     marker_length=BOARD.marker_length,
+    dictionary_id=BOARD.dictionary_id,
+    reprojection_error=ret,
 )
 print(f"\nSaved reference parameters to '{CALIBRATION_PATH}'.")

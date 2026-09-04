@@ -1,3 +1,12 @@
+"""Estimate and report ChArUco board distances for Dataset B.
+
+This diagnostic stage uses the reference calibration and the original Dataset
+B images.  It detects board corners, solves PnP with the measured distortion,
+and reports perpendicular board-plane distance in millimeters. It does not
+generate model predictions; ``evaluate_all.py`` performs the metadata-driven
+evaluation on the original image set.
+"""
+
 import cv2
 import numpy as np
 import os
@@ -8,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from benchmark.config import CALIBRATION_PATH, DATASET_B_DIR
+from benchmark.geometry import perpendicular_distance_mm
 from benchmark.io import create_charuco_detector, image_paths, load_calibration, read_image
 
 # Load the calibration from Dataset A
@@ -41,9 +51,8 @@ for image_file in image_files:
         success, rvec, tvec = cv2.solvePnP(obj_points, img_points, K, D)
         
         if success:
-            # Calculate distance in meters, then convert to millimeters
-            distance_meters = np.linalg.norm(tvec)
-            distance_mm = distance_meters * 1000
+            # Report perpendicular distance to the board plane, not its origin.
+            distance_mm = perpendicular_distance_mm(rvec, tvec)
             
             # Print the file name and the calculated physical distance
             filename = os.path.basename(image_file)

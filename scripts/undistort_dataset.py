@@ -1,3 +1,10 @@
+"""Create the model-input image set by removing calibrated lens distortion.
+
+Images are read from ``Data/dataset_B_evaluation`` and written with the same
+filenames to ``Data/dataset_B_undistorted`` using the reference ``K`` and ``D``.
+Keeping filenames unchanged lets prediction artifacts join to evaluation rows.
+"""
+
 import cv2
 import numpy as np
 import sys

@@ -1,3 +1,10 @@
+"""Run GeoCalib inference on original Dataset B images and save visualizations.
+
+GeoCalib loads its own image tensor from the path, predicts a pinhole camera,
+and renders gravity and latitude overlays.  The shared model runner handles
+image enumeration, recoverable failures, and prediction artifact storage.
+"""
+
 import sys
 import torch
 import numpy as np
@@ -8,26 +15,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from benchmark.config import DATASET_B_UNDISTORTED_DIR, OUTPUT_DIR, VISUALIZATION_DIR, ensure_output_directories
-from benchmark.io import image_paths
+from benchmark.config import VISUALIZATION_DIR
+from benchmark.model_runner import run_model
 from geocalib import GeoCalib
 from geocalib import viz2d
 from geocalib.perspective_fields import get_perspective_field
 
 # Create folders for outputs
 VIS_DIR = VISUALIZATION_DIR / "geocalib"
-ensure_output_directories()
 VIS_DIR.mkdir(parents=True, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = GeoCalib().to(device)
 
-predictions = {}
-input_paths = image_paths(DATASET_B_UNDISTORTED_DIR)
+def predict(img_path: Path, _image: np.ndarray) -> np.ndarray:
+    """Predict GeoCalib intrinsics and write the diagnostic visualization."""
 
-for img_path in input_paths:
-    filename = img_path.name
-    
     # GeoCalib loads the image as a tensor of shape [C, H, W]
     img_tensor = model.load_image(img_path).to(device)
     
@@ -39,7 +42,6 @@ for img_path in input_paths:
     
     # 1. Save the Predicted Intrinsic Matrix
     K_pred = camera.K.cpu().numpy()[0] if hasattr(camera, 'K') else camera["K"]
-    predictions[filename] = K_pred
     
     # 2. Extract vectors for visualization
     up, lat = get_perspective_field(camera, gravity)
@@ -58,17 +60,15 @@ for img_path in input_paths:
     vis_img = np.array(fig.canvas.renderer.buffer_rgba())
     vis_img = cv2.cvtColor(vis_img, cv2.COLOR_RGBA2BGR)
     
-    vis_path = VIS_DIR / f"vis_{filename}"
-    cv2.imwrite(vis_path, vis_img)
+    vis_path = VIS_DIR / f"vis_{img_path.name}"
+    if not cv2.imwrite(str(vis_path), vis_img):
+        raise RuntimeError(f"could not write visualization: {vis_path}")
     
     # CRITICAL: Close the figure to prevent RAM memory leaks
     plt.close(fig) 
     
-    print(f"GeoCalib processed & visualized: {filename}")
+    return K_pred
 
-if not predictions:
-    raise SystemExit("No GeoCalib predictions were produced.")
 
-output_path = OUTPUT_DIR / "preds_geocalib.npz"
-np.savez(output_path, **predictions)
-print(f"Done! Visualizations saved to '{VIS_DIR}'.")
+run_model("GeoCalib", predict, "preds_geocalib.npz")
+print(f"Visualizations saved to '{VIS_DIR}'.")
