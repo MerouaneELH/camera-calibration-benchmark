@@ -130,7 +130,7 @@ def make_plots(results: pd.DataFrame) -> None:
                 values.append(errors)
                 labels.append(method)
         if values:
-            axis.boxplot(values, tick_labels=labels)
+            axis.boxplot(values, labels=labels)
         else:
             axis.text(0.5, 0.5, "No valid measurements", ha="center", va="center")
         axis.set_ylabel(f"{dimension.title()} signed error (mm)")
@@ -142,6 +142,24 @@ def make_plots(results: pd.DataFrame) -> None:
         axis.set(xlabel=f"True {dimension} (mm)", ylabel=f"Estimated {dimension} (mm)")
         axis.legend()
         save_plot(figure, f"estimated_{dimension}_vs_true.png")
+
+
+def print_summary(results: pd.DataFrame) -> None:
+    """Print global dimensional metrics in the terminal."""
+    print("\n--- GLOBAL DIMENSIONAL SUMMARY ---")
+    for model, label in METHODS.items():
+        print(f"\n{label}")
+        for dimension in ("length", "width"):
+            metrics = dimension_metrics(results, model, dimension)
+            print(
+                f"  {dimension}: MAE={metrics['mae_mm']:.3f} mm, "
+                f"RMSE={metrics['rmse_mm']:.3f} mm, "
+                f"median={metrics['median_absolute_error_mm']:.3f} mm, "
+                f"max={metrics['max_absolute_error_mm']:.3f} mm, "
+                f"p95={metrics['p95_absolute_error_mm']:.3f} mm, "
+                f"mean %={metrics['mean_percentage_error']:.3f}, "
+                f"std={metrics['std_error_mm']:.3f} mm"
+            )
 
 
 def main() -> None:
@@ -195,6 +213,7 @@ def main() -> None:
     print(f"Dataset B images: {len(images)}; metadata rows: {len(metadata)}; evaluated: {len(results)}")
     for model, label in METHODS.items():
         print(f"{label}: length successes={results[f'{model}_estimated_length_mm'].notna().sum()}, width successes={results[f'{model}_estimated_width_mm'].notna().sum()}")
+    print_summary(results)
 
 
 if __name__ == "__main__":
